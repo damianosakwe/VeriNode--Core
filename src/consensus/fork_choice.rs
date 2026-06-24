@@ -21,7 +21,7 @@ pub fn branch_weighting(attestations: &[IncludedAttestation], max_delay_reward: 
     attestations
         .iter()
         .map(|attestation| {
-            attestation.validator_weight.saturating_mul(delay_reward(
+            attestation.validator_weight.saturating_add(delay_reward(
                 attestation.attestation_slot,
                 attestation.inclusion_slot,
                 max_delay_reward,
