@@ -1,7 +1,7 @@
-use soroban_sdk::{Address, Env, String, Symbol};
+use soroban_sdk::{Address, Env, String};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::testutils::Ledger;
-use sorosusu_contracts::{SoroSusu, SoroSusuClient, DataKey, ProposalType, ProposalStatus, QuadraticVoteChoice};
+use sorosusu_contracts::{CircleInfo, SoroSusu, SoroSusuClient, DataKey, ProposalType, ProposalStatus, QuadraticVoteChoice};
 
 #[test]
 fn test_quadratic_voting_enabled_for_large_groups() {
@@ -21,7 +21,7 @@ fn test_quadratic_voting_enabled_for_large_groups() {
     // Create large group (>= 10 members) - quadratic voting should be enabled
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0, // 100 XLM
+        &50_000_0, // 50 XLM - below high value threshold so no collateral needed
         &15u32,      // 15 members
         &token,
         &86400u64,
@@ -30,9 +30,13 @@ fn test_quadratic_voting_enabled_for_large_groups() {
     );
     
     // Verify quadratic voting is enabled
-    let circle_key = DataKey::Circle(circle_id);
-    let circle = env.storage().instance().get::<_, sorosusu_contracts::CircleInfo>(&circle_key).unwrap();
+    let circle: CircleInfo = env.as_contract(&contract_id, || {
+        env.storage().instance().get(&DataKey::Circle(circle_id)).unwrap()
+    });
     assert!(circle.quadratic_voting_enabled);
+    
+    // Advance ledger time past rate limit
+    env.ledger().set_timestamp(env.ledger().timestamp() + 301);
     
     // Create small group (< 10 members) - quadratic voting should be disabled
     let small_circle_id = client.create_circle(
@@ -46,8 +50,9 @@ fn test_quadratic_voting_enabled_for_large_groups() {
     );
     
     // Verify quadratic voting is disabled
-    let small_circle_key = DataKey::Circle(small_circle_id);
-    let small_circle = env.storage().instance().get::<_, sorosusu_contracts::CircleInfo>(&small_circle_key).unwrap();
+    let small_circle: CircleInfo = env.as_contract(&contract_id, || {
+        env.storage().instance().get(&DataKey::Circle(small_circle_id)).unwrap()
+    });
     assert!(!small_circle.quadratic_voting_enabled);
 }
 
@@ -70,7 +75,7 @@ fn test_create_proposal() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -165,7 +170,7 @@ fn test_voting_power_calculation() {
     // Create circle
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -209,7 +214,7 @@ fn test_quadratic_vote_cost_calculation() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -268,7 +273,7 @@ fn test_insufficient_voting_power() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -295,7 +300,7 @@ fn test_insufficient_voting_power() {
     );
     
     // Set low voting power (only enough for weight 5 vote: 5^2 = 25)
-    client.update_voting_power(&voter, &circle_id, &1_000_000_0);
+    client.update_voting_power(&voter, &circle_id, &50_000); // quadratic_power = 50_000/1000 = 50
     
     // Try to vote with weight 10 (cost = 10^2 = 100) - should fail
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -330,7 +335,7 @@ fn test_double_voting_prevention() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -381,6 +386,8 @@ fn test_quorum_requirement() {
     let proposer = Address::generate(&env);
     let voter1 = Address::generate(&env);
     let voter2 = Address::generate(&env);
+    let voter3 = Address::generate(&env);
+    let voter4 = Address::generate(&env);
     let token = Address::generate(&env);
     let nft_contract = Address::generate(&env);
     
@@ -390,7 +397,7 @@ fn test_quorum_requirement() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -398,10 +405,12 @@ fn test_quorum_requirement() {
         &nft_contract,
     );
     
-    // Join circle
+    // Join circle (need 5+ members so quorum threshold > 1)
     client.join_circle(&proposer, &circle_id, &1u32, &None);
     client.join_circle(&voter1, &circle_id, &1u32, &None);
     client.join_circle(&voter2, &circle_id, &1u32, &None);
+    client.join_circle(&voter3, &circle_id, &1u32, &None);
+    client.join_circle(&voter4, &circle_id, &1u32, &None);
     
     // Create proposal
     let title = String::from_str(&env, "Test proposal");
@@ -422,17 +431,17 @@ fn test_quorum_requirement() {
     client.update_voting_power(&voter2, &circle_id, &1_000_000_0);
     
     // Vote with low participation (should not meet quorum)
-    client.quadratic_vote(&voter1, &proposal_id, &2u32, &QuadraticVoteChoice::For); // Cost: 4
+    client.quadratic_vote(&voter1, &proposal_id, &1u32, &QuadraticVoteChoice::For); // Cost: 1
     
     let proposal = client.get_proposal(&proposal_id);
-    assert!(!proposal.quorum_met); // Should not meet 40% quorum
+    assert!(!proposal.quorum_met); // 5 members: quorum=2, cost=1 < 2, not met
     
     // Add more votes to meet quorum
     client.quadratic_vote(&voter2, &proposal_id, &3u32, &QuadraticVoteChoice::For); // Cost: 9
     
     let updated_proposal = client.get_proposal(&proposal_id);
-    assert_eq!(updated_proposal.for_votes, 13); // 4 + 9
-    assert!(updated_proposal.quorum_met); // Should now meet quorum
+    assert_eq!(updated_proposal.for_votes, 10); // 1 + 9
+    assert!(updated_proposal.quorum_met); // 10 >= 2, quorum met
 }
 
 #[test]
@@ -457,7 +466,7 @@ fn test_proposal_execution() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -534,7 +543,7 @@ fn test_proposal_rejection_insufficient_majority() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,
@@ -606,7 +615,7 @@ fn test_max_vote_weight_enforcement() {
     // Create large group
     let circle_id = client.create_circle(
         &creator,
-        &100_000_0,
+        &50_000_0,
         &15u32,
         &token,
         &86400u64,

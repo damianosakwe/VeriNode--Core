@@ -98,9 +98,11 @@ fn test_vote_on_leniency_approval() {
     
     // Verify grace period was applied
     let circle_key = DataKey::Circle(circle_id);
-    let circle = env.storage().instance().get::<_, sorosusu_contracts::CircleInfo>(&circle_key).unwrap();
-    assert!(circle.grace_period_end.is_some());
-    assert!(circle.grace_period_end.unwrap() > circle.deadline_timestamp);
+    env.as_contract(&contract_id, || {
+        let circle = env.storage().instance().get::<_, sorosusu_contracts::CircleInfo>(&circle_key).unwrap();
+        assert!(circle.grace_period_end.is_some());
+        assert!(circle.grace_period_end.unwrap() > circle.deadline_timestamp);
+    });
 }
 
 #[test]
@@ -391,9 +393,11 @@ fn test_grace_period_prevents_late_fees() {
     
     // Verify grace period is active
     let circle_key = DataKey::Circle(circle_id);
-    let circle = env.storage().instance().get::<_, sorosusu_contracts::CircleInfo>(&circle_key).unwrap();
-    assert!(circle.grace_period_end.is_some());
-    assert!(env.ledger().timestamp() < circle.grace_period_end.unwrap());
+    env.as_contract(&contract_id, || {
+        let circle = env.storage().instance().get::<_, sorosusu_contracts::CircleInfo>(&circle_key).unwrap();
+        assert!(circle.grace_period_end.is_some());
+        assert!(env.ledger().timestamp() < circle.grace_period_end.unwrap());
+    });
     
     // In a real test with token contracts, deposit would succeed without late fees
     // This test verifies the grace period logic is working
