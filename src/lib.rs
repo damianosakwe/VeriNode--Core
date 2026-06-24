@@ -862,13 +862,14 @@ impl SoroSusuTrait for SoroSusu {
 
         // Check if voting should be finalized early (if majority reached)
         let total_possible_votes = (circle.member_count - 1) as u32; // Exclude requester
-        let votes_needed_for_majority = (total_possible_votes * SIMPLE_MAJORITY_THRESHOLD) / 100;
+        let votes_needed_for_majority = (total_possible_votes * SIMPLE_MAJORITY_THRESHOLD + 99) / 100;
         
         if request.approve_votes >= votes_needed_for_majority {
             request.status = LeniencyRequestStatus::Approved;
             SoroSusu::finalize_leniency_vote_internal(&env, &circle_id, &requester, &mut request);
         } else if request.reject_votes >= votes_needed_for_majority {
             request.status = LeniencyRequestStatus::Rejected;
+            SoroSusu::finalize_leniency_vote_internal(&env, &circle_id, &requester, &mut request);
         }
 
         env.storage().instance().set(&request_key, &request);
@@ -1102,7 +1103,7 @@ impl SoroSusuTrait for SoroSusu {
         } else {
             let approval_percentage = (proposal.for_votes * 100) / total_votes;
             if approval_percentage >= QUADRATIC_MAJORITY as u64 {
-                proposal.status = ProposalStatus::Approved;
+                proposal.status = ProposalStatus::Executed;
                 
                 // Execute the proposal based on type
                 SoroSusu::execute_proposal_logic(&env, &proposal);
@@ -1127,7 +1128,10 @@ impl SoroSusuTrait for SoroSusu {
         match proposal.status {
             ProposalStatus::Approved => stats.approved_proposals += 1,
             ProposalStatus::Rejected => stats.rejected_proposals += 1,
-            ProposalStatus::Executed => stats.executed_proposals += 1,
+            ProposalStatus::Executed => {
+                stats.approved_proposals += 1;
+                stats.executed_proposals += 1;
+            },
             _ => {}
         }
 
@@ -1346,18 +1350,18 @@ impl SoroSusuTrait for SoroSusu {
 
 impl SoroSusu {
     fn finalize_leniency_vote_internal(env: &Env, circle_id: &u64, requester: &Address, request: &mut LeniencyRequest) {
-        let total_possible_votes = request.total_votes_cast;
+        let circle_key = DataKey::Circle(*circle_id);
+        let mut circle: CircleInfo = env.storage().instance().get(&circle_key).expect("Circle not found");
+        
+        let total_possible_votes = (circle.member_count - 1) as u32; // Exclude requester
         let minimum_participation = (total_possible_votes * MINIMUM_VOTING_PARTICIPATION) / 100;
         
-        let mut final_status = LeniencyRequestStatus::Rejected;
+        let mut final_status = LeniencyRequestStatus::Expired;
         
-        if request.total_votes_cast >= minimum_participation {
+        if request.total_votes_cast > 0 && request.total_votes_cast >= minimum_participation {
             let approval_percentage = (request.approve_votes * 100) / request.total_votes_cast;
             if approval_percentage >= SIMPLE_MAJORITY_THRESHOLD {
                 final_status = LeniencyRequestStatus::Approved;
-                
-                let circle_key = DataKey::Circle(*circle_id);
-                let mut circle: CircleInfo = env.storage().instance().get(&circle_key).expect("Circle not found");
                 
                 let extension_seconds = request.extension_hours * 3600;
                 let new_deadline = circle.deadline_timestamp + extension_seconds;
@@ -1378,6 +1382,8 @@ impl SoroSusu {
                 social_capital.leniency_received += 1;
                 social_capital.trust_score = (social_capital.trust_score + 5).min(100);
                 env.storage().instance().set(&social_capital_key, &social_capital);
+            } else {
+                final_status = LeniencyRequestStatus::Rejected;
             }
         }
         
