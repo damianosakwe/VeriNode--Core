@@ -7,6 +7,7 @@
 //! Previously the root was `hash_tree_root(AttestationData)` alone, which is
 //! identical across domains and therefore replayable.
 
+use crate::attestation::bitfield::AttestationBitfield;
 use crate::crypto::domain::Domain;
 use crate::crypto::merkle::{merkleize_8, Hash256};
 use crate::crypto::sha256::sha256;
@@ -117,6 +118,47 @@ pub fn verify_aggregate_signature(
         ok &= verify_attestation_signature(k, domain, data, s);
     }
     ok
+}
+
+/// Verify an attestation against its committee bitfield.
+///
+/// For every validator whose bit is set in `bitfield`, the corresponding
+/// `(key, signature)` pair must validate over `(domain, data)`. Validator
+/// indexing routes through [`AttestationBitfield::is_attesting`], which applies
+/// [`AttestationBitfield::committee_index`] — the SSZ LSB0 mapping — so a
+/// validator is always attributed the bit the wire format intended (fixes #9).
+///
+/// `keys` and `signatures` are indexed by logical validator position and must
+/// both have length equal to `bitfield.committee_size()`.
+pub fn verify_attestation(
+    bitfield: &AttestationBitfield,
+    keys: &[SecretKey],
+    domain: &Domain,
+    data: &AttestationData,
+    signatures: &[Signature],
+) -> bool {
+    let committee_size = bitfield.committee_size();
+    if keys.len() != committee_size || signatures.len() != committee_size {
+        return false;
+    }
+
+    for validator_index in 0..committee_size {
+        let attesting = match bitfield.is_attesting(validator_index) {
+            Ok(bit) => bit,
+            Err(_) => return false,
+        };
+        if attesting
+            && !verify_attestation_signature(
+                &keys[validator_index],
+                domain,
+                data,
+                &signatures[validator_index],
+            )
+        {
+            return false;
+        }
+    }
+    true
 }
 
 /// Constant-time comparison of two 32-byte values.
