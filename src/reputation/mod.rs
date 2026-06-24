@@ -1,4 +1,5 @@
 pub mod fixed_point;
+pub mod score;
 pub mod score_engine;
 pub mod types;
 

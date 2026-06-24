@@ -1,6 +1,7 @@
 pub mod monitor;
 pub mod executor;
 pub mod event_store;
+pub mod pool;
 
 #[cfg(test)]
 pub mod tests;
@@ -84,4 +85,18 @@ pub enum SlashingDataKey {
     BondPool(Address),
     /// Slashing-in-progress flag: prevents duplicate processing
     SlashingLock(Address),
+
+    // --- Reward pool keys (see `pool.rs`) ---
+    /// Remaining reward balance for a slashing event: `slashing:{event_id}:pool`
+    RewardPool(u64),
+    /// Immutable per-validator reward, fixed at pool creation
+    RewardPerValidator(u64),
+    /// Number of registered reporters for the event
+    PoolReporterCount(u64),
+    /// Number of reporters that have already claimed: `slashing:{event_id}:claimed_count`
+    PoolClaimedCount(u64),
+    /// Membership marker: this address is a registered reporter for the event
+    PoolReporter(u64, Address),
+    /// Per-claimant marker: this address has already claimed for the event
+    PoolClaimed(u64, Address),
 }
