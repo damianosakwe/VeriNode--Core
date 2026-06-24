@@ -24,3 +24,7 @@ proptest = "1.4"
 opt-level = "z"   # Optimize for small binary size
 lto = true
 codegen-units = 1
+
+[[test]]
+name = "griefing_resistance_test"
+path = "tests/slashing/griefing_resistance_test.rs"

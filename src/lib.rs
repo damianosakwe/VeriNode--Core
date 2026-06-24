@@ -1,4 +1,5 @@
-#![no_std]
+#![cfg_attr(target_family = "wasm", no_std)]
+pub mod slashing;
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, token,
     Address, Env, String, Vec,

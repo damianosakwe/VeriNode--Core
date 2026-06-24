@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::slashing::mempool::{SlashingMempool, Evidence, OverflowError};
+    use sorosusu_contracts::slashing::mempool::{SlashingMempool, Evidence, OverflowError};
 
     #[test]
     fn test_minimal_evidence_flood_griefing_resistance() {
